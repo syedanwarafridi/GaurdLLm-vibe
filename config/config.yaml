@@ -88,7 +88,7 @@ layer2:
   # Judge model — HuggingFace on GPU server
   judge:
     backend: "huggingface"      # options: huggingface, ollama, openai
-    model_name: "meta-llama/Llama-3.2-3B-Instruct"  # 3B fits in ~6GB VRAM
+    model_name: "Qwen/Qwen2.5-3B-Instruct"           # 3B fits in ~6GB VRAM
     ollama_base_url: "http://localhost:11434"         # fallback if ollama used
     max_tokens: 512
     temperature: 0.0            # deterministic for primary decision
@@ -119,7 +119,7 @@ layer2:
 layer3:
   guard_llm:
     backend: "huggingface"      # options: huggingface, ollama
-    model_name: "meta-llama/Llama-3.2-3B-Instruct"
+    model_name: "Qwen/Qwen2.5-3B-Instruct"
     ollama_base_url: "http://localhost:11434"
     max_tokens: 512
     load_in_4bit: true          # bitsandbytes 4-bit quantisation
@@ -184,7 +184,7 @@ evaluation:
 # ─────────────────────────────────────────
 red_team:
   enabled: true
-  attacker_model: "llama3.2"
+  attacker_model: "qwen2.5:3b"
   attacker_backend: "ollama"
   attacks_per_round: 50
   rounds: 5
