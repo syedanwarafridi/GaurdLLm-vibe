@@ -1,0 +1,208 @@
+# LLM-Guard Configuration
+# ========================
+# All tunable parameters in one place.
+# TBD values will be filled after experiments.
+
+project:
+  name: "LLM-Guard"
+  version: "0.1.0"
+  seed: 42
+  device: "auto"          # "auto" = use CUDA if available, else CPU
+  fp16: true              # use float16 on GPU (faster + less VRAM)
+  log_dir: "logs/"
+  artifact_dir: "artifacts/"
+
+# ─────────────────────────────────────────
+# DATA
+# ─────────────────────────────────────────
+data:
+  raw_dir: "data/raw/"
+  processed_dir: "data/processed/"
+  distillation_pool_dir: "data/distillation_pool/"
+  benchmarks_dir: "data/benchmarks/"
+
+  distillation_pool:
+    train_size: 50000
+    val_size: 5000
+    test_size: 10000
+
+  # Label mapping
+  labels:
+    allow: 1
+    mitigate: 0
+
+  # Categories of policy-violating content
+  violation_categories:
+    - toxicity
+    - phishing
+    - disinformation
+    - jailbreak
+    - hate_speech
+    - self_harm
+
+# ─────────────────────────────────────────
+# LAYER 1 — Detector Fusion
+# ─────────────────────────────────────────
+layer1:
+  # (a) Curvature / perplexity signal
+  curvature:
+    num_perturbations: 10       # M — number of decoding perturbations
+    temperature_range: [0.5, 1.5]
+    top_p_range: [0.8, 1.0]
+
+  # (b) Log-rank signal
+  log_rank:
+    vocab_size: null            # auto-detected from model
+
+  # (c) Distilled classifier (RoBERTa-base + LoRA)
+  classifier:
+    backbone: "roberta-base"
+    lora_r: 8
+    lora_alpha: 16
+    lora_dropout: 0.1
+    max_length: 512
+    batch_size: 64          # increased for GPU (use 16 if OOM)
+    num_workers: 4          # DataLoader workers (0 on Windows if errors)
+    pin_memory: true        # faster GPU transfers
+    learning_rate: 2e-4
+    epochs: 5
+    early_stopping_patience: 2
+
+  # Logistic stacker fusion
+  fusion:
+    method: "logistic"          # logistic stacking of 3 signals
+
+  # Temperature scaling calibration
+  calibration:
+    temperature: 1.0            # T — TBD from experiments
+
+  # Routing thresholds (TBD from experiments)
+  thresholds:
+    low: 0.3                    # below → allow
+    high: 0.7                   # above → mitigate; between → send to Judge
+
+# ─────────────────────────────────────────
+# LAYER 2 — LLM-as-Judge
+# ─────────────────────────────────────────
+layer2:
+  # Judge model — HuggingFace on GPU server
+  judge:
+    backend: "huggingface"      # options: huggingface, ollama, openai
+    model_name: "meta-llama/Llama-3.2-3B-Instruct"  # 3B fits in ~6GB VRAM
+    ollama_base_url: "http://localhost:11434"         # fallback if ollama used
+    max_tokens: 512
+    temperature: 0.0            # deterministic for primary decision
+    load_in_4bit: true          # bitsandbytes 4-bit quantisation (saves VRAM)
+
+  # Self-consistency
+  consistency:
+    K: 5                        # number of Judge queries per sample (TBD)
+    sample_temperature: 0.7     # temperature for sampling variants
+    c_min: 0.6                  # minimum confidence to allow (TBD)
+
+  # Distillation back to Layer-1
+  distillation:
+    retrain_every_n: 1000       # retrain L1 every N new Judge labels
+    pool_path: "data/distillation_pool/"
+
+  # Optional Retrieval-Based Verification (RBV)
+  rbv:
+    enabled: false              # disabled in MVP
+    retriever: "bm25"           # options: bm25, dpr, colbert
+    top_k: 5
+    nli_model: "cross-encoder/nli-deberta-v3-small"
+    evidence_corpus: "data/raw/fever_corpus/"
+
+# ─────────────────────────────────────────
+# LAYER 3 — Guard-LLM
+# ─────────────────────────────────────────
+layer3:
+  guard_llm:
+    backend: "huggingface"      # options: huggingface, ollama
+    model_name: "meta-llama/Llama-3.2-3B-Instruct"
+    ollama_base_url: "http://localhost:11434"
+    max_tokens: 512
+    load_in_4bit: true          # bitsandbytes 4-bit quantisation
+
+  # Constrained decoding
+  constraints:
+    use_token_bans: true
+    use_regex: true
+    templates_path: "config/safety_templates.yaml"
+
+  # Candidate generation and re-ranking
+  candidates:
+    K_prime: 3                  # number of safe candidates to generate
+
+  # Mitigation modes
+  mitigation:
+    modes: ["refuse", "redact", "safe_rewrite"]
+    default_mode: "refuse"
+
+# ─────────────────────────────────────────
+# EVALUATION
+# ─────────────────────────────────────────
+evaluation:
+  benchmarks:
+    - name: "jailbreakbench"
+      path: "data/benchmarks/jailbreakbench/"
+      enabled: true
+    - name: "harmbench"
+      path: "data/benchmarks/harmbench/"
+      enabled: true
+    - name: "safetybench"
+      path: "data/benchmarks/safetybench/"
+      enabled: true
+    - name: "raid"
+      path: "data/benchmarks/raid/"
+      enabled: true
+    - name: "truthfulqa"
+      path: "data/benchmarks/truthfulqa/"
+      enabled: true
+    - name: "realtoxicityprompts"
+      path: "data/benchmarks/realtoxicityprompts/"
+      enabled: true
+
+  metrics:
+    - auroc
+    - auprc
+    - fpr_at_95tpr
+    - jailbreak_success_rate
+    - refusal_appropriateness
+    - safe_rewrite_quality
+    - ece
+    - delta_fpr
+    - delta_fnr
+
+  fairness:
+    nnes_paraphrase: true       # test on paraphrase/translation variants
+    bootstrap_samples: 1000
+    alpha: 0.05
+
+# ─────────────────────────────────────────
+# RED-TEAMING
+# ─────────────────────────────────────────
+red_team:
+  enabled: true
+  attacker_model: "llama3.2"
+  attacker_backend: "ollama"
+  attacks_per_round: 50
+  rounds: 5
+  attack_types:
+    - jailbreak_template
+    - paraphrase
+    - translation
+    - role_play
+    - decoding_manipulation
+  log_failures: true
+  failure_log_path: "logs/red_team_failures.jsonl"
+
+# ─────────────────────────────────────────
+# LOGGING & AUDIT
+# ─────────────────────────────────────────
+logging:
+  level: "INFO"
+  audit_log_path: "logs/audit.jsonl"   # stores all L1/L2/L3 decisions
+  log_rationales: true
+  log_constraints: true
+  nist_mapping: true                   # map decisions to NIST AI RMF controls

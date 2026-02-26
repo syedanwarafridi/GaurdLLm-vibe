@@ -1,0 +1,40 @@
+# Safety Templates for Layer-3 Guard-LLM
+# =========================================
+# Used during constrained decoding and mitigation.
+
+refusal_templates:
+  default: >
+    I'm unable to provide that information as it may cause harm.
+    If you have a legitimate need, please rephrase your request.
+  toxicity: >
+    This content contains harmful language that I cannot reproduce or elaborate on.
+  phishing: >
+    This request appears to involve deceptive practices.
+    I cannot assist with creating or spreading phishing content.
+  jailbreak: >
+    I recognize this as an attempt to bypass safety guidelines.
+    I'm designed to operate within ethical boundaries.
+  disinformation: >
+    I cannot help create or spread false information.
+    Please consult verified sources for accurate information.
+
+redaction_markers:
+  placeholder: "[REDACTED]"
+  reason_prefix: "[Content removed:"
+  reason_suffix: "]"
+
+safe_rewrite_instructions: >
+  Rewrite the following content to remove all harmful, toxic, or policy-violating
+  elements while preserving the legitimate informational intent, if any.
+  If no safe version is possible, respond with a polite refusal.
+
+banned_patterns:
+  # Regex patterns for token-level bans
+  - pattern: "(?i)(kill|murder|assassinate)\\s+(\\w+\\s+){0,3}(person|people|human)"
+    category: violence
+  - pattern: "(?i)(how to|steps to|guide to)\\s+(hack|phish|scam|defraud)"
+    category: phishing
+  - pattern: "(?i)(ignore|bypass|override|disregard)\\s+(your|all|previous)\\s+(instructions|guidelines|rules)"
+    category: jailbreak
+  - pattern: "(?i)(create|generate|write)\\s+(malware|virus|ransomware|exploit)"
+    category: malware
